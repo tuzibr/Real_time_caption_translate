@@ -1,0 +1,1 @@
+pyinstaller -i C.ico --add-data "C.ico:." --name RealTimeCaptionTranslate --add-data "D:\anaconda3\envs\caption\Lib\site-packages\vosk;vosk" --hidden-import vosk --collect-submodules vosk Run.py
