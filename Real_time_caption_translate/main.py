@@ -8,8 +8,8 @@ from collections import deque
 
 import pyaudiowpatch as pyaudio
 
-from Real_time_caption_translation.config_manager import ConfigHandler
-from Real_time_caption_translation.translator import tl_api, DEEPL_LANGUAGE_TO_CODE, GOOGLE_LANGUAGES_TO_CODES
+from Real_time_caption_translate.config_manager import ConfigHandler
+from Real_time_caption_translate.translator import tl_api, DEEPL_LANGUAGE_TO_CODE, GOOGLE_LANGUAGES_TO_CODES
 
 from vosk import Model, KaldiRecognizer
 
