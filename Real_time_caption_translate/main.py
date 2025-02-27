@@ -30,7 +30,7 @@ class Mainloop:
         self.root = root
         self.root.title("Real-time Caption Translation")
         self.root.geometry("1200x400")
-        self.root.iconbitmap(get_resource_path("C.ico"))
+        self.root.iconbitmap(True, get_resource_path("C.ico"))
         # Save configuration when the window is closed
         self.root.protocol("WM_DELETE_WINDOW",  self.on_exit)
 
@@ -613,7 +613,7 @@ class Mainloop:
 
 def main():
     root = tk.Tk()
-    Real_time_caption_translation = Mainloop(root)
+    Real_time_caption_translate = Mainloop(root)
     root.mainloop()
 
 if __name__ == "__main__":
