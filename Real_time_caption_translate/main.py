@@ -5,6 +5,7 @@ import json
 import numpy as np
 from tkinter import ttk, scrolledtext, filedialog
 from collections import deque
+import logging
 
 import pyaudiowpatch as pyaudio
 
@@ -40,11 +41,13 @@ class Mainloop:
         self.stream = None
         self.p = None
         self.rec = None
+        self.chuck = 4096
         self.tc_sentences = []  # List to store complete transcribed sentences
         self.tl_sentences = []  # List to store complete translated sentences
 
         self.model_dir_var = tk.StringVar(value=self.current_config["user_settings"]["model_dir"])
         self.translation_queue = deque(maxlen=2)  # Queue with a maximum length of 2
+        self.data_queue = deque(maxlen=10)
         self.queue_lock = threading.Lock()  # Thread lock for queue access
 
         self.source_lang = self.current_config["user_settings"]["source_lang"]
@@ -230,6 +233,9 @@ class Mainloop:
         self.resize_handle = ttk.Sizegrip(self.monitor_window)
         self.resize_handle.place(relx=1.0, rely=1.0, anchor='se')
 
+        self.source_text.bind("<Button-1>", lambda e: self.source_text.focus_set())
+        self.translated_text.bind("<Button-1>", lambda e: self.translated_text.focus_set())
+
     def drag_monitor(self, event):
         """Handle dragging of the monitor window."""
         x = self.monitor_window.winfo_x() + (event.x - self.drag_data["x"])
@@ -256,27 +262,12 @@ class Mainloop:
         else:
             self.stop_transcription()
 
-    def convert_to_mono(self, data, channels):
-        """
-        Convert multi-channel audio data to mono using NumPy for better performance.
-        :param data: Raw audio data in bytes
-        :param channels: Number of audio channels
-        :return: Mono audio data in bytes
-        """
-        if channels == 1:
-            return data
-
-        samples = np.frombuffer(data, dtype='<i2')
-        num_frames = len(samples) // channels
-        samples_reshaped = samples.reshape(num_frames, channels)
-        mono_samples = np.sum(samples_reshaped, axis=1, dtype=np.int32) // channels
-        return mono_samples.astype('<i2').tobytes()
-
     def start_transcription(self):
         """Start the transcription process."""
         if self.is_transcribing:
             return
 
+        logging.info("Starting transcription")
         with self.queue_lock:
             self.translation_queue.clear()
         self.tc_sentences.clear()
@@ -295,25 +286,21 @@ class Mainloop:
         self.translated_text.tag_configure("partial", foreground="gray")
 
         # Initialize audio stream and Vosk recognizer
-        CHUNK = 4096
         self.p = pyaudio.PyAudio()
 
-        if 'Microphone' in self.transcribe_device['name']:
-            self.stream = self.p.open(format=pyaudio.paInt16,
-                        channels=self.transcribe_device["channels"],
-                        rate=self.transcribe_device["rate"],
-                        frames_per_buffer=CHUNK,
-                        input=True,
-                        input_device_index=self.transcribe_device["index"],
-                        )
-        else:
-            self.stream = self.p.open(format=pyaudio.paInt16,
-                        channels=self.transcribe_device["channels"],
-                        rate=self.transcribe_device["rate"],
-                        frames_per_buffer=CHUNK,
-                        input=True,
-                        input_device_index=self.transcribe_device["index"],
-                        )
+        def callback(in_data, frame_count, time_info, status):
+            self.data_queue.append(in_data)
+            return (in_data, pyaudio.paContinue)
+
+        self.stream = self.p.open(format=pyaudio.paInt16,
+                    channels=self.transcribe_device["channels"],
+                    rate=self.transcribe_device["rate"],
+                    frames_per_buffer=self.chuck,
+                    input=True,
+                    input_device_index=self.transcribe_device["index"],
+                    stream_callback=callback
+                    )
+
 
         model = Model(self.model_dir_var.get())
         self.rec = KaldiRecognizer(model, self.transcribe_device["rate"])
@@ -351,14 +338,34 @@ class Mainloop:
         self.p = None
         self.rec = None
 
-        print("Transcription stopped.")
+        logging.info("Transcription stopped.")
         self.start_stop_btn.config(text="Start")
+
+    def convert_to_mono(self, data, channels):
+        """
+        Convert multi-channel audio data to mono using NumPy for better performance.
+        :param data: Raw audio data in bytes
+        :param channels: Number of audio channels
+        :return: Mono audio data in bytes
+        """
+        if channels == 1:
+            return data
+        samples = np.frombuffer(data, dtype='<i2')
+        num_frames = self.chuck
+        samples_reshaped = samples.reshape(num_frames, channels)
+        mono_samples = np.sum(samples_reshaped, axis=1, dtype=np.int32) // channels
+        mono_samples = np.clip(mono_samples, -32768, 32767)
+        return mono_samples.astype('<i2').tobytes()
 
     def transcription_loop(self):
         """Main loop for audio transcription."""
         while self.is_transcribing and self.rec is not None:
             try:
-                data = self.stream.read(1024, exception_on_overflow=False)
+                # data = self.stream.read(self.chuck, exception_on_overflow=False)
+                if not self.data_queue:
+                    time.sleep(0.1)
+                    continue
+                data = self.data_queue.popleft()
                 data = self.convert_to_mono(data, self.transcribe_device["channels"])
                 if self.rec.AcceptWaveform(data):
                     result = json.loads(self.rec.Result())
@@ -432,9 +439,9 @@ class Mainloop:
             self.source_text.insert("end", text + " ", "partial")
             self._update_monitor_text(self.partial_transcript,text + " ")
 
-        self.source_text.config(state="disabled")
-        self.source_text.bindtags((self.source_text, self.root, "all"))
-        self.source_text.see(tk.END)
+        # self.source_text.config(state="disabled")
+        # self.source_text.bindtags((self.source_text, self.root, "all"))
+
 
     def update_translated_text(self, text, is_complete):
         """Main loop for translating transcribed text."""
@@ -448,9 +455,9 @@ class Mainloop:
             self.translated_text.insert("end", text + " ", "partial")
             self._update_monitor_text(self.partial_translation,text + " ")
 
-        self.translated_text.config(state="disabled")
-        self.translated_text.bindtags((self.translated_text, self.root, "all"))
-        self.translated_text.see(tk.END)
+        # self.translated_text.config(state="disabled")
+        # self.translated_text.bindtags((self.translated_text, self.root, "all"))
+
 
     def _update_monitor_text(self, widget, text):
         """Update text in the monitor window."""
