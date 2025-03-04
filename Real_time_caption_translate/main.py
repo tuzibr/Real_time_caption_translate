@@ -5,9 +5,15 @@ import json
 import numpy as np
 from tkinter import ttk, scrolledtext, filedialog
 from collections import deque
-import logging
+from sys import platform
 
-import pyaudiowpatch as pyaudio
+if platform == "win32":
+    import pyaudiowpatch as pyaudio
+else:
+    import pyaudio
+
+
+import logging
 
 from Real_time_caption_translate.config_manager import ConfigHandler
 from Real_time_caption_translate.translator import tl_api, DEEPL_LANGUAGE_TO_CODE, GOOGLE_LANGUAGES_TO_CODES
@@ -31,7 +37,12 @@ class Mainloop:
         self.root = root
         self.root.title("Real-time Caption Translation")
         self.root.geometry("1200x400")
-        self.root.iconbitmap(True, get_resource_path("C.ico"))
+
+        if platform == "win32":
+            self.root.iconbitmap(True, get_resource_path("C.ico"))
+        else:
+            self.root.iconphoto(True, tk.PhotoImage(file=get_resource_path("C.png")))
+
         # Save configuration when the window is closed
         self.root.protocol("WM_DELETE_WINDOW",  self.on_exit)
 
@@ -87,43 +98,64 @@ class Mainloop:
 
     def scan_audio_devices(self):
         """Scan available audio input devices."""
-        p = pyaudio.PyAudio()
         self.audio_devices = []
 
-        try:
-            # Get WASAPI information
-            wasapi_info = p.get_host_api_info_by_type(pyaudio.paWASAPI)
-            default_speakers = p.get_device_info_by_index(wasapi_info["defaultOutputDevice"])
+        if platform == "win32":
+            try:
+                p = pyaudio.PyAudio()
+                # Get WASAPI information
+                wasapi_info = p.get_host_api_info_by_type(pyaudio.paWASAPI)
+                default_speakers = p.get_device_info_by_index(wasapi_info["defaultOutputDevice"])
 
-            if not default_speakers["isLoopbackDevice"]:
-                for loopback in p.get_loopback_device_info_generator():
-                    """
-                    Try to find loopback device with same name(and [Loopback suffix]).
-                    Unfortunately, this is the most adequate way at the moment.
-                    """
-                    if default_speakers["name"] in loopback["name"]:
-                        default_speakers = loopback
-                        break
+                if not default_speakers["isLoopbackDevice"]:
+                    for loopback in p.get_loopback_device_info_generator():
+                        """
+                        Try to find loopback device with same name(and [Loopback suffix]).
+                        Unfortunately, this is the most adequate way at the moment.
+                        """
+                        if default_speakers["name"] in loopback["name"]:
+                            default_speakers = loopback
+                            break
 
-            self.audio_devices.append({
-                "name": f"[Speaker] {default_speakers['name']}",
-                "index": default_speakers["index"],
-                "channels": default_speakers["maxInputChannels"],
-                "rate": int(default_speakers["defaultSampleRate"])
-            })
+                self.audio_devices.append({
+                    "name": f"[Speaker] {default_speakers['name']}",
+                    "index": default_speakers["index"],
+                    "channels": default_speakers["maxInputChannels"],
+                    "rate": int(default_speakers["defaultSampleRate"])
+                })
 
-            default_microphone = p.get_device_info_by_index(wasapi_info["defaultInputDevice"])
-            self.audio_devices.append({
-                "name": f"[Microphone] {default_microphone['name']}",
-                "index": default_microphone["index"],
-                "channels": default_microphone["maxInputChannels"],
-                "rate": int(default_microphone["defaultSampleRate"])
-            })
+                default_microphone = p.get_device_info_by_index(wasapi_info["defaultInputDevice"])
+                self.audio_devices.append({
+                    "name": f"[Microphone] {default_microphone['name']}",
+                    "index": default_microphone["index"],
+                    "channels": default_microphone["maxInputChannels"],
+                    "rate": int(default_microphone["defaultSampleRate"])
+                })
 
-            self.transcribe_device = self.audio_devices[0] if self.audio_devices else None
+                self.transcribe_device = self.audio_devices[0] if self.audio_devices else None
 
-        except OSError as e:
-            print(f"Error scanning audio devices: {e}")
+            except OSError as e:
+                print(f"Error scanning audio devices: {e}")
+
+        else:
+            # Use standard PyAudio for macOS and other platforms
+            p = pyaudio.PyAudio()
+            try:
+                for i in range(p.get_device_count()):
+                    dev = p.get_device_info_by_index(i)
+                    if dev["maxInputChannels"] > 0:  # Only input devices
+                        self.audio_devices.append({
+                            "name": f"[Microphone] {dev['name']}",
+                            "index": dev["index"],
+                            "channels": dev["maxInputChannels"],
+                            "rate": int(dev["defaultSampleRate"])
+                        })
+                if not self.audio_devices:
+                    print("No input devices found on this system.")
+
+                self.transcribe_device = self.audio_devices[0] if self.audio_devices else None
+            except Exception as e:
+                print(f"Error scanning audio devices: {e}")
 
 
     def create_main_interface(self):
@@ -194,15 +226,18 @@ class Mainloop:
         pos = self.current_config["user_settings"]["monitor_position"]
         self.monitor_window.geometry(f"1000x200+{pos[0]}+{pos[1]}")
         self.monitor_window.attributes('-topmost', True)
-        self.monitor_window.attributes('-alpha', 1)
-        self.monitor_window.config(borderwidth=0, relief='groove')
+        self.monitor_window.attributes('-alpha', 0.9)
+        self.monitor_window.config(bg='#000000')
 
         # Bind window drag events
         self.monitor_window.bind("<B1-Motion>", self.drag_monitor)
         self.monitor_window.bind("<Button-1>", self.start_drag)
 
+        style = ttk.Style()
+        style.configure("Black.TPanedwindow", background="#000000", sashwidth=10, sashrelief="flat")
+
         # Split pane for transcription and translation
-        self.monitor_pane = ttk.PanedWindow(self.monitor_window, orient=tk.VERTICAL)
+        self.monitor_pane = ttk.PanedWindow(self.monitor_window, orient=tk.VERTICAL, style="Black.TPanedwindow")
         self.monitor_pane.pack(fill=tk.BOTH, expand=True)
 
         # Transcription monitor area
@@ -210,11 +245,13 @@ class Mainloop:
             self.monitor_pane,
             wrap=tk.WORD,
             font=('Arial', 12),
-            bg='#FAFAFA',
+            bg='#000000',
+            fg='#FFFFFF',
             padx=10,
             pady=10,
             relief='flat'
         )
+        self.partial_transcript.config(state='disabled')
         self.monitor_pane.add(self.partial_transcript, weight=1)
 
         # Translation monitor area
@@ -222,11 +259,13 @@ class Mainloop:
             self.monitor_pane,
             wrap=tk.WORD,
             font=('Arial', 12),
-            bg='#F0F8FF',
+            bg='#000000',
+            fg='#FFFFFF',
             padx=10,
             pady=10,
             relief='flat'
         )
+        self.partial_translation.config(state='disabled')
         self.monitor_pane.add(self.partial_translation, weight=1)
 
         # Resize handle
@@ -354,8 +393,8 @@ class Mainloop:
         num_frames = self.chuck
         samples_reshaped = samples.reshape(num_frames, channels)
         mono_samples = np.sum(samples_reshaped, axis=1, dtype=np.int32) // channels
-        mono_samples = np.clip(mono_samples, -32768, 32767)
-        return mono_samples.astype('<i2').tobytes()
+        mono_samples = np.array(mono_samples, dtype=np.int32).clip(-32768, 32767).astype('<i2')
+        return mono_samples.tobytes()
 
     def transcription_loop(self):
         """Main loop for audio transcription."""

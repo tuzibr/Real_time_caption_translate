@@ -2,3 +2,4 @@ deep-translator
 numpy
 ollama
 vosk
+pyaudiowpatch
