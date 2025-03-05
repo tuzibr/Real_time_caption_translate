@@ -491,6 +491,9 @@ class Mainloop:
         """Update the transcription text area."""
         self.source_text.config(state="normal")
 
+        first, last = self.source_text.yview()
+        was_at_bottom = (last == 1.0)
+
         if is_complete:
             self._clear_partial_text()
             self.source_text.insert("end", text + "\n")
@@ -499,13 +502,15 @@ class Mainloop:
             self.source_text.insert("end", text + " ", "partial")
             self._update_monitor_text(self.partial_transcript,text + " ")
 
-        # self.source_text.config(state="disabled")
-        # self.source_text.bindtags((self.source_text, self.root, "all"))
-
+        if was_at_bottom:
+            self.source_text.see(tk.END)
 
     def update_translated_text(self, text, is_complete):
         """Main loop for translating transcribed text."""
         self.translated_text.config(state="normal")
+
+        first, last = self.translated_text.yview()
+        was_at_bottom = (last == 1.0)
 
         if is_complete:
             self._clear_translated_partial_text()
@@ -515,8 +520,8 @@ class Mainloop:
             self.translated_text.insert("end", text + " ", "partial")
             self._update_monitor_text(self.partial_translation,text + " ")
 
-        # self.translated_text.config(state="disabled")
-        # self.translated_text.bindtags((self.translated_text, self.root, "all"))
+        if was_at_bottom:
+            self.translated_text.see(tk.END)
 
 
     def _update_monitor_text(self, widget, text):
