@@ -165,6 +165,25 @@ class Mainloop:
         )
         self.translated_text.grid(row=1, column=1, sticky="nsew")
 
+        self.create_context_menu(self.source_text)
+        self.create_context_menu(self.translated_text)
+
+    def create_context_menu(self, widget):
+        menu = tk.Menu(widget, tearoff=0)
+        menu.add_command(label="copy", command=lambda: self.copy_text(widget))
+        widget.bind("<Button-3>", lambda event: self.show_context_menu(event, menu))
+
+    def show_context_menu(self, event, menu):
+        menu.tk_popup(event.x_root, event.y_root)
+
+    def copy_text(self, widget):
+        try:
+            selected_text = widget.selection_get()
+            widget.clipboard_clear()
+            widget.clipboard_append(selected_text)
+        except tk.TclError:
+            pass
+
     def create_monitor_window(self):
         """Create a borderless, interactive monitor window."""
         self.monitor_window = tk.Toplevel(self.root)
