@@ -33,13 +33,14 @@ class ConfigHandler:
             "monitor_position": [0, 0],
             "deepl_key": "",
             "ollama_url": "localhost:11434",
-            "ollama_model": ""
+            "ollama_model": "",
+            "hotwords": ["hello", "world"]
         }
     }
 
     def __init__(self, config_name: str = "user_config.json"):
-        self.config_path  = get_executable_dir() / config_name
-        self.config  = deepcopy(self.DEFAULT_CONFIG)  # Prevent default value contamination
+        self.config_path = get_executable_dir() / config_name
+        self.config = deepcopy(self.DEFAULT_CONFIG)  # Prevent default value contamination
         self._convert_paths()
 
     def _convert_paths(self):
@@ -87,10 +88,10 @@ class ConfigHandler:
         """Enhanced recursive merge algorithm for nested dictionaries"""
         for key, value in update.items():
             if isinstance(value, dict):
-                node = base.setdefault(key,  {})
+                node = base.setdefault(key, {})
                 self._deep_merge(node, value)
             elif isinstance(value, list):
-                base[key] = base.get(key,  []) + value
+                base[key] = value
             else:
                 base[key] = value
 

@@ -3,9 +3,10 @@ import threading
 import time
 import json
 import numpy as np
-from tkinter import ttk, scrolledtext, filedialog
+from tkinter import ttk, scrolledtext, filedialog, messagebox
 from collections import deque
 from sys import platform
+from copy import deepcopy
 
 if platform == "win32":
     import pyaudiowpatch as pyaudio
@@ -17,6 +18,7 @@ import logging
 
 from Real_time_caption_translate.config_manager import ConfigHandler
 from Real_time_caption_translate.translator import tl_api, DEEPL_LANGUAGE_TO_CODE, GOOGLE_LANGUAGES_TO_CODES
+from Real_time_caption_translate.hotwords import correct_sentence
 
 from vosk import Model, KaldiRecognizer
 
@@ -81,13 +83,8 @@ class Mainloop:
         self.lang_dict = self.engine_lang_dicts.get(self.engine,
                                                     DEEPL_LANGUAGE_TO_CODE)  # Default to DeepL if engine not found
 
-        # Monitor window properties
-        self.monitor_window = None
-
-        # Create the main interface and monitor window
-        self.create_main_interface()
-        self.create_monitor_window()
-        self.settings_window = None
+        self.hotwords = self.current_config["user_settings"].get("hotwords")
+        self.hotwords_beta = False
 
         # Audio device properties
         self.audio_devices = []  # List to store available audio devices
@@ -96,67 +93,13 @@ class Mainloop:
         # Scan audio devices on initialization
         self.scan_audio_devices()
 
-    def scan_audio_devices(self):
-        """Scan available audio input devices."""
-        self.audio_devices = []
+        # Monitor window properties
+        self.monitor_window = None
 
-        if platform == "win32":
-            try:
-                p = pyaudio.PyAudio()
-                # Get WASAPI information
-                wasapi_info = p.get_host_api_info_by_type(pyaudio.paWASAPI)
-                default_speakers = p.get_device_info_by_index(wasapi_info["defaultOutputDevice"])
-
-                if not default_speakers["isLoopbackDevice"]:
-                    for loopback in p.get_loopback_device_info_generator():
-                        """
-                        Try to find loopback device with same name(and [Loopback suffix]).
-                        Unfortunately, this is the most adequate way at the moment.
-                        """
-                        if default_speakers["name"] in loopback["name"]:
-                            default_speakers = loopback
-                            break
-
-                self.audio_devices.append({
-                    "name": f"[Speaker] {default_speakers['name']}",
-                    "index": default_speakers["index"],
-                    "channels": default_speakers["maxInputChannels"],
-                    "rate": int(default_speakers["defaultSampleRate"])
-                })
-
-                default_microphone = p.get_device_info_by_index(wasapi_info["defaultInputDevice"])
-                self.audio_devices.append({
-                    "name": f"[Microphone] {default_microphone['name']}",
-                    "index": default_microphone["index"],
-                    "channels": default_microphone["maxInputChannels"],
-                    "rate": int(default_microphone["defaultSampleRate"])
-                })
-
-                self.transcribe_device = self.audio_devices[0] if self.audio_devices else None
-
-            except OSError as e:
-                print(f"Error scanning audio devices: {e}")
-
-        else:
-            # Use standard PyAudio for macOS and other platforms
-            p = pyaudio.PyAudio()
-            try:
-                for i in range(p.get_device_count()):
-                    dev = p.get_device_info_by_index(i)
-                    if dev["maxInputChannels"] > 0:  # Only input devices
-                        self.audio_devices.append({
-                            "name": f"[Microphone] {dev['name']}",
-                            "index": dev["index"],
-                            "channels": dev["maxInputChannels"],
-                            "rate": int(dev["defaultSampleRate"])
-                        })
-                if not self.audio_devices:
-                    print("No input devices found on this system.")
-
-                self.transcribe_device = self.audio_devices[0] if self.audio_devices else None
-            except Exception as e:
-                print(f"Error scanning audio devices: {e}")
-
+        # Create the main interface and monitor window
+        self.create_main_interface()
+        self.create_monitor_window()
+        self.settings_window = None
 
     def create_main_interface(self):
         """Create the main user interface."""
@@ -186,6 +129,9 @@ class Mainloop:
         # Start/Stop button
         self.start_stop_btn = ttk.Button(toolbar, text="Start", command=self.toggle_transcription)
         self.start_stop_btn.pack(side=tk.RIGHT, padx=5)
+
+        self.hotwords_btn = ttk.Button(toolbar,text=f"Hotwords Beta: {'On' if self.hotwords_beta else 'Off'}",command=self.toggle_hotwords_beta,style="Hotwords.TButton" if self.hotwords_beta else "")
+        self.hotwords_btn.pack(side=tk.RIGHT, padx=5)
 
         # Main content area
         main_frame = ttk.Frame(self.root)
@@ -285,6 +231,75 @@ class Mainloop:
         """Record the starting point for dragging."""
         self.drag_data = {"x": event.x, "y": event.y}
 
+    def scan_audio_devices(self):
+        """Scan available audio input devices."""
+        self.audio_devices = []
+
+        if platform == "win32":
+            try:
+                p = pyaudio.PyAudio()
+                # Get WASAPI information
+                wasapi_info = p.get_host_api_info_by_type(pyaudio.paWASAPI)
+                default_speakers = p.get_device_info_by_index(wasapi_info["defaultOutputDevice"])
+
+                if not default_speakers["isLoopbackDevice"]:
+                    for loopback in p.get_loopback_device_info_generator():
+                        """
+                        Try to find loopback device with same name(and [Loopback suffix]).
+                        Unfortunately, this is the most adequate way at the moment.
+                        """
+                        if default_speakers["name"] in loopback["name"]:
+                            default_speakers = loopback
+                            break
+
+                self.audio_devices.append({
+                    "name": f"[Speaker] {default_speakers['name']}",
+                    "index": default_speakers["index"],
+                    "channels": default_speakers["maxInputChannels"],
+                    "rate": int(default_speakers["defaultSampleRate"])
+                })
+
+                default_microphone = p.get_device_info_by_index(wasapi_info["defaultInputDevice"])
+                self.audio_devices.append({
+                    "name": f"[Microphone] {default_microphone['name']}",
+                    "index": default_microphone["index"],
+                    "channels": default_microphone["maxInputChannels"],
+                    "rate": int(default_microphone["defaultSampleRate"])
+                })
+
+                self.transcribe_device = self.audio_devices[0] if self.audio_devices else None
+
+            except OSError as e:
+                print(f"Error scanning audio devices: {e}")
+
+        else:
+            # Use standard PyAudio for macOS and other platforms
+            p = pyaudio.PyAudio()
+            try:
+                for i in range(p.get_device_count()):
+                    dev = p.get_device_info_by_index(i)
+                    if dev["maxInputChannels"] > 0:  # Only input devices
+                        self.audio_devices.append({
+                            "name": f"[Microphone] {dev['name']}",
+                            "index": dev["index"],
+                            "channels": dev["maxInputChannels"],
+                            "rate": int(dev["defaultSampleRate"])
+                        })
+                if not self.audio_devices:
+                    print("No input devices found on this system.")
+
+                self.transcribe_device = self.audio_devices[0] if self.audio_devices else None
+            except Exception as e:
+                print(f"Error scanning audio devices: {e}")
+
+    def toggle_hotwords_beta(self):
+        """Toggle the Hotwords Beta"""
+        self.hotwords_beta = not self.hotwords_beta
+        self.hotwords_btn.config(
+            text=f"Hotwords Beta: {'On' if self.hotwords_beta else 'Off'}",
+            style="Hotwords.TButton" if self.hotwords_beta else ""
+        )
+
     def toggle_monitor(self):
         """Toggle the visibility of the monitor window."""
         if self.monitor_window.winfo_viewable():
@@ -311,7 +326,6 @@ class Mainloop:
             self.translation_queue.clear()
         self.tc_sentences.clear()
         self.tl_sentences.clear()
-
         self.is_transcribing = True
         self.start_stop_btn.config(text="Stop")
         self.source_text.config(state="normal")
@@ -342,7 +356,12 @@ class Mainloop:
 
 
         model = Model(self.model_dir_var.get())
-        self.rec = KaldiRecognizer(model, self.transcribe_device["rate"])
+
+        self.rec_hoy_words = None
+        self.rec_hoy_words = deepcopy(self.current_config["user_settings"].get("hotwords"))
+
+        self.rec = KaldiRecognizer(model,
+                                   self.transcribe_device["rate"],)
 
         # Start transcription and translation threads
         self.transcription_thread = threading.Thread(target=self.transcription_loop, daemon=True)
@@ -355,13 +374,13 @@ class Mainloop:
         if not self.is_transcribing:
             return
 
-        self.is_transcribing = False
+
 
         # Wait for threads to finish with a timeout
         if self.transcription_thread and self.transcription_thread.is_alive():
-            self.transcription_thread.join(timeout=2)
+            self.transcription_thread.join(timeout=1)
         if self.translation_thread and self.translation_thread.is_alive():
-            self.translation_thread.join(timeout=2)
+            self.translation_thread.join(timeout=1)
 
         with self.queue_lock:
             self.translation_queue.clear()
@@ -377,6 +396,7 @@ class Mainloop:
         self.p = None
         self.rec = None
 
+        self.is_transcribing = False
         logging.info("Transcription stopped.")
         self.start_stop_btn.config(text="Start")
 
@@ -410,6 +430,8 @@ class Mainloop:
                     result = json.loads(self.rec.Result())
                     text = result.get("text", "")
                     if text:
+                        if self.hotwords_beta:
+                            text = correct_sentence(text, self.rec_hoy_words)
                         self.tc_sentences.append(text)
                         self.root.after(0, self.update_source_text, text, True)
 
@@ -422,7 +444,6 @@ class Mainloop:
                         partial_text = partial.get("partial", "")
                         if partial_text:
                             self.root.after(0, self.update_source_text, partial_text, False)
-
                             if not self.translation_queue:
                                 tl_task = {"text": partial_text, "flag": False}
                                 self.translation_queue.append(tl_task)
@@ -541,7 +562,43 @@ class Mainloop:
             self.create_translation_settings(trans_tab)
             notebook.add(trans_tab, text="Translation Settings")
 
+            hotwords_tab = ttk.Frame(notebook)
+            self.create_hotwords_settings(hotwords_tab)
+            notebook.add(hotwords_tab, text="Hotwords Settings")
+
             notebook.pack(expand=True, fill=tk.BOTH, padx=10, pady=10)
+
+    def create_hotwords_settings(self, parent):
+        """Create the hotwords settings interface"""
+        # Add a hint label
+        ttk.Label(parent,
+                  text="The hotwords list allows you to improve the recognition accuracy of specific words during speech recognition.").grid(
+            row=0, column=0,
+            columnspan=2,
+            sticky=tk.W, pady=2)
+
+        # Hotwords input area
+        ttk.Label(parent, text="Enter hotwords (one per line, Use lowercase letters):").grid(row=1, column=0, sticky=tk.W)
+        self.hotwords_text = scrolledtext.ScrolledText(parent, wrap=tk.WORD, width=40, height=10)
+        self.hotwords_text.grid(row=2, column=0, columnspan=2, sticky=tk.NSEW, pady=5)
+        self.hotwords_text.insert("end", "\n".join(self.hotwords))  # Display existing hotwords
+
+        # Save button
+        save_btn = ttk.Button(parent, text="Save", command=self.save_hotwords)
+        save_btn.grid(row=3, column=1, sticky=tk.E, pady=5)
+
+        # Make the input box resize with the window
+        parent.columnconfigure(1, weight=1)
+        parent.rowconfigure(2, weight=1)
+
+    def save_hotwords(self):
+        """Save hotwords to config"""
+        if self.hotwords_text:
+            hotwords = self.hotwords_text.get("1.0", "end-1c").splitlines()
+            self.hotwords = [hw.strip() for hw in hotwords if hw.strip()]
+            self.current_config["user_settings"]["hotwords"] = self.hotwords
+            # 删除原有的文件保存操作
+            messagebox.showinfo("save successfully", "save successfully！")
 
     def create_audio_settings(self, parent):
         """Create the audio settings interface."""
@@ -637,6 +694,9 @@ class Mainloop:
 
     def on_exit(self):
         """Handle window close and save configuration."""
+        while self.is_transcribing:
+            self.stop_transcription()
+            time.sleep(0.1)
         current_settings = {
             "user_settings": {
                 "engine": self.current_engine_var.get(),
@@ -651,9 +711,11 @@ class Mainloop:
                 ],
                 "deepl_key": self.deepl_key_var.get(),
                 "ollama_url": self.ollama_url_var.get(),
-                "ollama_model": self.ollama_model_var.get()
+                "ollama_model": self.ollama_model_var.get(),
+                "hotwords": self.hotwords
             }
         }
+
         self.config_handler.save_config(current_settings)
         self.root.destroy()
 
