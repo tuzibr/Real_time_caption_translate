@@ -340,13 +340,14 @@ class Mainloop:
         if self.is_transcribing:
             return
 
-        logging.info("Starting transcription")
         with self.queue_lock:
             self.translation_queue.clear()
+            self.data_queue.clear()
+
         self.tc_sentences.clear()
         self.tl_sentences.clear()
-        self.is_transcribing = True
-        self.start_stop_btn.config(text="Stop")
+
+
         self.source_text.config(state="normal")
         self.source_text.delete(1.0, tk.END)
         self.source_text.config(state="disabled")
@@ -364,17 +365,21 @@ class Mainloop:
             self.data_queue.append(in_data)
             return (in_data, pyaudio.paContinue)
 
-        self.stream = self.p.open(format=pyaudio.paInt16,
-                    channels=self.transcribe_device["channels"],
-                    rate=self.transcribe_device["rate"],
-                    frames_per_buffer=self.chuck,
-                    input=True,
-                    input_device_index=self.transcribe_device["index"],
-                    stream_callback=callback
-                    )
+        try:
+            self.stream = self.p.open(format=pyaudio.paInt16,
+                        channels=self.transcribe_device["channels"],
+                        rate=self.transcribe_device["rate"],
+                        frames_per_buffer=self.chuck,
+                        input=True,
+                        input_device_index=self.transcribe_device["index"],
+                        stream_callback=callback
+                        )
 
-
-        model = Model(self.model_dir_var.get())
+            model = Model(self.model_dir_var.get())
+        except Exception as e:
+            logging.error(f"Error initializing : {e}")
+            messagebox.showerror("Error", f"Error initializing: {e}")
+            return
 
         self.rec_hoy_words = None
         self.rec_hoy_words = deepcopy(self.current_config["user_settings"].get("hotwords"))
@@ -388,12 +393,14 @@ class Mainloop:
         self.translation_thread = threading.Thread(target=self.translation_loop, daemon=True)
         self.translation_thread.start()
 
+        self.start_stop_btn.config(text="Stop")
+        self.is_transcribing = True
+        logging.info("Starting transcription")
+
     def stop_transcription(self):
         """Stop the transcription process."""
         if not self.is_transcribing:
             return
-
-
 
         # Wait for threads to finish with a timeout
         if self.transcription_thread and self.transcription_thread.is_alive():
@@ -416,8 +423,8 @@ class Mainloop:
         self.rec = None
 
         self.is_transcribing = False
-        logging.info("Transcription stopped.")
         self.start_stop_btn.config(text="Start")
+        logging.info("Transcription stopped.")
 
     def convert_to_mono(self, data, channels):
         """
