@@ -59,8 +59,8 @@ class Mainloop:
         self.tl_sentences = []  # List to store complete translated sentences
 
         self.model_dir_var = tk.StringVar(value=self.current_config["user_settings"]["model_dir"])
-        self.translation_queue = deque(maxlen=2)  # Queue with a maximum length of 2
-        self.data_queue = deque(maxlen=10)
+        self.translation_queue = deque(maxlen=10)
+        self.data_queue = deque(maxlen=100)
         self.queue_lock = threading.Lock()  # Thread lock for queue access
 
         self.source_lang = self.current_config["user_settings"]["source_lang"]
@@ -69,16 +69,24 @@ class Mainloop:
         self.engine = self.current_config["user_settings"]["engine"]
         self.current_engine_var = tk.StringVar(value=self.engine)
 
+        self.translate_when_sentence_finishes = self.current_config["user_settings"]["translate_when_sentence_finishes"]
+
         # StringVars for engine-specific settings
         self.deepl_key_var = tk.StringVar(value=self.current_config["user_settings"]["deepl_key"])
+        self.deepseek_key_var = tk.StringVar(value=self.current_config["user_settings"]["deepseek_key"])
         self.ollama_url_var = tk.StringVar(value=self.current_config["user_settings"]["ollama_url"])
         self.ollama_model_var = tk.StringVar(value=self.current_config["user_settings"]["ollama_model"])
+        self.openai_url_var = tk.StringVar(value=self.current_config["user_settings"]["openai_url"])
+        self.openai_key_var = tk.StringVar(value=self.current_config["user_settings"]["openai_key"])
+        self.openai_model_var = tk.StringVar(value=self.current_config["user_settings"]["openai_model"])
 
         # Engine-specific language dictionaries
         self.engine_lang_dicts = {
             "Google": GOOGLE_LANGUAGES_TO_CODES,
             "DeepL": DEEPL_LANGUAGE_TO_CODE,
-            "Ollama": GOOGLE_LANGUAGES_TO_CODES  # Could be empty or minimal if no selection needed
+            "DeepSeek": GOOGLE_LANGUAGES_TO_CODES,
+            "Ollama": GOOGLE_LANGUAGES_TO_CODES,
+            "OpenAI": GOOGLE_LANGUAGES_TO_CODES
         }
         self.lang_dict = self.engine_lang_dicts.get(self.engine,
                                                     DEEPL_LANGUAGE_TO_CODE)  # Default to DeepL if engine not found
@@ -92,6 +100,8 @@ class Mainloop:
 
         # Scan audio devices on initialization
         self.scan_audio_devices()
+
+        self.is_monitor_visible = False
 
         # Monitor window properties
         self.monitor_window = None
@@ -111,7 +121,7 @@ class Mainloop:
         settings_btn.pack(side=tk.LEFT)
 
         # Monitor toggle button
-        self.monitor_btn = ttk.Button(toolbar, text="📺 Hide", command=self.toggle_monitor)
+        self.monitor_btn = ttk.Button(toolbar, text="📺 Show", command=self.toggle_monitor)
         self.monitor_btn.pack(side=tk.LEFT, padx=5)
 
         # Source language selector
@@ -130,8 +140,24 @@ class Mainloop:
         self.start_stop_btn = ttk.Button(toolbar, text="Start", command=self.toggle_transcription)
         self.start_stop_btn.pack(side=tk.RIGHT, padx=5)
 
-        self.hotwords_btn = ttk.Button(toolbar,text=f"Hotwords Beta: {'On' if self.hotwords_beta else 'Off'}",command=self.toggle_hotwords_beta,style="Hotwords.TButton" if self.hotwords_beta else "")
-        self.hotwords_btn.pack(side=tk.RIGHT, padx=5)
+        self.hotwords_var = tk.BooleanVar(value=self.hotwords_beta)
+
+        self.hotwords_cbtn = ttk.Checkbutton(
+            toolbar,
+            text="Hotwords",
+            variable=self.hotwords_var,
+            command=self.toggle_hotwords_beta,
+            style="Toggle.TCheckbutton"
+        )
+        self.hotwords_cbtn.pack(side=tk.RIGHT, padx=5)
+
+        style = ttk.Style()
+        style.configure("Toggle.TCheckbutton",
+                        font=('Microsoft YaHei', 9),
+                        foreground="#444",
+                        indicatormargin=4,
+                        indicatorsize=16)
+
 
         # Main content area
         main_frame = ttk.Frame(self.root)
@@ -145,7 +171,7 @@ class Mainloop:
         self.source_text = scrolledtext.ScrolledText(
             main_frame,
             wrap=tk.WORD,
-            font=('Arial', 14),
+            font=('TkDefaultFont', 14),
             padx=5,
             pady=5,
             bg='#f0f0f0',
@@ -157,7 +183,7 @@ class Mainloop:
         self.translated_text = scrolledtext.ScrolledText(
             main_frame,
             wrap=tk.WORD,
-            font=('Arial', 14),
+            font=('TkDefaultFont', 14),
             padx=5,
             pady=5,
             bg='#f0f0f0',
@@ -209,7 +235,7 @@ class Mainloop:
         self.partial_transcript = tk.Text(
             self.monitor_pane,
             wrap=tk.WORD,
-            font=('Arial', 12),
+            font=('TkDefaultFont', 14),
             bg='#000000',
             fg='#FFFFFF',
             padx=10,
@@ -223,7 +249,7 @@ class Mainloop:
         self.partial_translation = tk.Text(
             self.monitor_pane,
             wrap=tk.WORD,
-            font=('Arial', 12),
+            font=('TkDefaultFont', 14),
             bg='#000000',
             fg='#FFFFFF',
             padx=10,
@@ -239,6 +265,8 @@ class Mainloop:
 
         self.source_text.bind("<Button-1>", lambda e: self.source_text.focus_set())
         self.translated_text.bind("<Button-1>", lambda e: self.translated_text.focus_set())
+
+        self.monitor_window.withdraw()
 
     def drag_monitor(self, event):
         """Handle dragging of the monitor window."""
@@ -314,19 +342,18 @@ class Mainloop:
     def toggle_hotwords_beta(self):
         """Toggle the Hotwords Beta"""
         self.hotwords_beta = not self.hotwords_beta
-        self.hotwords_btn.config(
-            text=f"Hotwords Beta: {'On' if self.hotwords_beta else 'Off'}",
-            style="Hotwords.TButton" if self.hotwords_beta else ""
-        )
+        self.hotwords_var.set(self.hotwords_beta)
 
     def toggle_monitor(self):
         """Toggle the visibility of the monitor window."""
-        if self.monitor_window.winfo_viewable():
+        if self.is_monitor_visible:
             self.monitor_window.withdraw()
-            self.monitor_btn.config(text="📺  Show")
+            self.monitor_btn.config(text="📺 Show")
         else:
+            # 如果当前隐藏，则显示
             self.monitor_window.deiconify()
-            self.monitor_btn.config(text="📺  Hide")
+            self.monitor_btn.config(text="📺 Hide")
+        self.is_monitor_visible = not self.is_monitor_visible
 
     def toggle_transcription(self):
         """Toggle the transcription state."""
@@ -387,15 +414,15 @@ class Mainloop:
         self.rec = KaldiRecognizer(model,
                                    self.transcribe_device["rate"],)
 
+        self.start_stop_btn.config(text="Stop")
+        self.is_transcribing = True
+        logging.info("Starting transcription")
+
         # Start transcription and translation threads
         self.transcription_thread = threading.Thread(target=self.transcription_loop, daemon=True)
         self.transcription_thread.start()
         self.translation_thread = threading.Thread(target=self.translation_loop, daemon=True)
         self.translation_thread.start()
-
-        self.start_stop_btn.config(text="Stop")
-        self.is_transcribing = True
-        logging.info("Starting transcription")
 
     def stop_transcription(self):
         """Stop the transcription process."""
@@ -471,8 +498,11 @@ class Mainloop:
                         if partial_text:
                             self.root.after(0, self.update_source_text, partial_text, False)
                             if not self.translation_queue:
-                                tl_task = {"text": partial_text, "flag": False}
-                                self.translation_queue.append(tl_task)
+                                if not self.translate_when_sentence_finishes:
+                                    tl_task = {"text": partial_text, "flag": False}
+                                    self.translation_queue.append(tl_task)
+                                else:
+                                    continue
 
             except Exception as e:
                 print(f"Transcription error: {e}")
@@ -489,16 +519,32 @@ class Mainloop:
                 try:
                     engine = self.current_engine_var.get()
                     kwargs = {}
-                    if engine != "Ollama":
+
+                    if engine == "Google":
                         source_lang_code = self.lang_dict[self.source_lang_selector.get()]
                         target_lang_code = self.lang_dict[self.target_lang_selector.get()]
                         kwargs["lang_source"] = source_lang_code
                         kwargs["lang_target"] = target_lang_code
-                    if engine == "DeepL":
+                    elif engine == "DeepL":
                         kwargs["api_key"] = self.deepl_key_var.get()
+                        source_lang_code = self.lang_dict[self.source_lang_selector.get()]
+                        target_lang_code = self.lang_dict[self.target_lang_selector.get()]
+                        kwargs["lang_source"] = source_lang_code
+                        kwargs["lang_target"] = target_lang_code
                     elif engine == "Ollama":
                         kwargs["url"] = self.ollama_url_var.get()
                         kwargs["model"] = self.ollama_model_var.get()
+                        kwargs["lang_source"] = self.source_lang_selector.get()
+                        kwargs["lang_target"] = self.target_lang_selector.get()
+                    elif engine == "DeepSeek":
+                        kwargs["api_key"] = self.deepseek_key_var.get()
+                        kwargs["lang_source"] = self.source_lang_selector.get()
+                        kwargs["lang_target"] = self.target_lang_selector.get()
+                    elif engine == "OpenAI":
+                        kwargs["url"] = self.openai_url_var.get()
+                        kwargs["model"] = self.openai_model_var.get()
+                        kwargs["api_key"] = self.openai_key_var.get()
+                        kwargs["lang_source"] = self.source_lang_selector.get()
                         kwargs["lang_target"] = self.target_lang_selector.get()
 
                     if task['flag']:
@@ -597,39 +643,19 @@ class Mainloop:
             self.create_hotwords_settings(hotwords_tab)
             notebook.add(hotwords_tab, text="Hotwords Settings")
 
+            save_frame = ttk.Frame(self.settings_window)
+            save_frame.pack(side=tk.BOTTOM, fill=tk.X, padx=10, pady=10)
+
+            save_all_btn = ttk.Button(save_frame,
+                                      text="Save Settings",
+                                      command=lambda: [
+                                          self.save_all_config(),
+                                          self.settings_window.destroy()  # 新增关闭操作
+                                      ])
+            save_all_btn.pack(side=tk.RIGHT, anchor=tk.E)
+
             notebook.pack(expand=True, fill=tk.BOTH, padx=10, pady=10)
 
-    def create_hotwords_settings(self, parent):
-        """Create the hotwords settings interface"""
-        # Add a hint label
-        ttk.Label(parent,
-                  text="The hotwords list allows you to improve the recognition accuracy of specific words during speech recognition.").grid(
-            row=0, column=0,
-            columnspan=2,
-            sticky=tk.W, pady=2)
-
-        # Hotwords input area
-        ttk.Label(parent, text="Enter hotwords (one per line, Use lowercase letters):").grid(row=1, column=0, sticky=tk.W)
-        self.hotwords_text = scrolledtext.ScrolledText(parent, wrap=tk.WORD, width=40, height=10)
-        self.hotwords_text.grid(row=2, column=0, columnspan=2, sticky=tk.NSEW, pady=5)
-        self.hotwords_text.insert("end", "\n".join(self.hotwords))  # Display existing hotwords
-
-        # Save button
-        save_btn = ttk.Button(parent, text="Save", command=self.save_hotwords)
-        save_btn.grid(row=3, column=1, sticky=tk.E, pady=5)
-
-        # Make the input box resize with the window
-        parent.columnconfigure(1, weight=1)
-        parent.rowconfigure(2, weight=1)
-
-    def save_hotwords(self):
-        """Save hotwords to config"""
-        if self.hotwords_text:
-            hotwords = self.hotwords_text.get("1.0", "end-1c").splitlines()
-            self.hotwords = [hw.strip() for hw in hotwords if hw.strip()]
-            self.current_config["user_settings"]["hotwords"] = self.hotwords
-            # 删除原有的文件保存操作
-            messagebox.showinfo("save successfully", "save successfully！")
 
     def create_audio_settings(self, parent):
         """Create the audio settings interface."""
@@ -647,7 +673,7 @@ class Mainloop:
         path_frame = ttk.Frame(parent)
         path_frame.grid(row=1, column=1, sticky=tk.EW)
 
-        entry = ttk.Entry(path_frame, textvariable=self.model_dir_var, width=40)
+        entry = ttk.Entry(path_frame, textvariable=self.model_dir_var, width=50)
         entry.pack(side=tk.LEFT, fill=tk.X, expand=True)
 
         browse_btn = ttk.Button(path_frame, text="Browse...", width=8, command=self.browse_model_dir)
@@ -669,17 +695,38 @@ class Mainloop:
 
     def create_translation_settings(self, parent):
         """Create the translation settings interface."""
-        ttk.Label(parent, text="Translation Engine:").grid(row=0, column=0, sticky=tk.W)
-        self.trans_engine = ttk.Combobox(parent, values=["Google", "DeepL", "Ollama"], textvariable=self.current_engine_var)
-        self.trans_engine.grid(row=0, column=1, sticky=tk.EW)
+        # frame
+        header_frame = ttk.Frame(parent)
+        header_frame.grid(row=0, column=0, columnspan=2, sticky=tk.EW, pady=5)
+
+        ttk.Label(header_frame, text="Translation Engine:").grid(row=0, column=0, sticky=tk.W)
+        self.trans_engine = ttk.Combobox(header_frame, values=["Google", "DeepL", "Ollama", "DeepSeek", "OpenAI"],
+                                         textvariable=self.current_engine_var)
+        self.trans_engine.grid(row=0, column=1, sticky=tk.EW, padx=(0, 10))
         self.trans_engine.bind("<<ComboboxSelected>>", self.on_engine_select)
 
-        # Frame for engine-specific settings
-        self.engine_settings_frame = ttk.Frame(parent)
-        self.engine_settings_frame.grid(row=1, column=0, columnspan=2, sticky=tk.EW)
+        # translate_when_sentence_finishes
+        self.translate_when_sentence_finishes_var = tk.BooleanVar(value=self.translate_when_sentence_finishes)
+        self.translate_when_sentence_finishes_cbtn = ttk.Checkbutton(
+            header_frame,
+            text="translate_when_sentence_finishes",
+            variable=self.translate_when_sentence_finishes_var,
+            command=self.toggle_translate_when_sentence_finishes,
+            style="Toggle.TCheckbutton"
+        )
+        self.translate_when_sentence_finishes_cbtn.grid(row=0, column=2, padx=5, sticky=tk.E)
 
-        # Initial update of settings frame
+        header_frame.columnconfigure(1, weight=1)
+
+        self.engine_settings_frame = ttk.Frame(parent)
+        self.engine_settings_frame.grid(row=1, column=0, columnspan=2, sticky=tk.NSEW)
+
         self.update_engine_settings()
+
+    def toggle_translate_when_sentence_finishes(self):
+        """Toggle the translation when sentence finishes checkbox."""
+        self.translate_when_sentence_finishes = not self.translate_when_sentence_finishes
+        self.translate_when_sentence_finishes_var.set(self.translate_when_sentence_finishes)
 
     def on_engine_select(self, event):
         """Handle engine selection change."""
@@ -695,15 +742,31 @@ class Mainloop:
 
         if engine == "DeepL":
             ttk.Label(self.engine_settings_frame, text="DeepL API Key:").grid(row=0, column=0, sticky=tk.W)
-            self.deepl_key_entry = ttk.Entry(self.engine_settings_frame, textvariable=self.deepl_key_var, width=35)
+            self.deepl_key_entry = ttk.Entry(self.engine_settings_frame, textvariable=self.deepl_key_var, width=40)
             self.deepl_key_entry.grid(row=0, column=1, sticky=tk.EW)
         elif engine == "Ollama":
             ttk.Label(self.engine_settings_frame, text="Ollama URL:").grid(row=0, column=0, sticky=tk.W)
-            self.ollama_url_entry = ttk.Entry(self.engine_settings_frame, textvariable=self.ollama_url_var, width=35)
+            self.ollama_url_entry = ttk.Entry(self.engine_settings_frame, textvariable=self.ollama_url_var, width=40)
             self.ollama_url_entry.grid(row=0, column=1, sticky=tk.EW)
             ttk.Label(self.engine_settings_frame, text="Model Name:").grid(row=1, column=0, sticky=tk.W)
-            self.ollama_model_entry = ttk.Entry(self.engine_settings_frame, textvariable=self.ollama_model_var, width=35)
+            self.ollama_model_entry = ttk.Entry(self.engine_settings_frame, textvariable=self.ollama_model_var, width=40)
             self.ollama_model_entry.grid(row=1, column=1, sticky=tk.EW)
+        elif engine == "DeepSeek":
+            ttk.Label(self.engine_settings_frame, text="DeepSeek API Key:").grid(row=0, column=0, sticky=tk.W)
+            self.deepseek_key_entry = ttk.Entry(self.engine_settings_frame, textvariable=self.deepseek_key_var, width=40)
+            self.deepseek_key_entry.grid(row=0, column=1, sticky=tk.EW)
+        elif engine == "OpenAI":
+            ttk.Label(self.engine_settings_frame, text="OpenAI URL:").grid(row=0, column=0, sticky=tk.W)
+            self.openai_url_entry = ttk.Entry(self.engine_settings_frame, textvariable=self.openai_url_var, width=40)
+            self.openai_url_entry.grid(row=0, column=1, sticky=tk.EW)
+
+            ttk.Label(self.engine_settings_frame, text="Model Name:").grid(row=1, column=0, sticky=tk.W)
+            self.openai_model_entry = ttk.Entry(self.engine_settings_frame, textvariable=self.openai_model_var,width=40)
+            self.openai_model_entry.grid(row=1, column=1, sticky=tk.EW)
+
+            ttk.Label(self.engine_settings_frame, text="OpenAI API Key:").grid(row=2, column=0, sticky=tk.W)
+            self.openai_key_entry = ttk.Entry(self.engine_settings_frame, textvariable=self.openai_key_var, width=40)
+            self.openai_key_entry.grid(row=2, column=1, sticky=tk.EW)
         # For Google, no additional settings
 
     def update_language_selectors(self):
@@ -723,11 +786,37 @@ class Mainloop:
             self.target_lang_selector.set(
                 self.target_lang if self.target_lang in languages else languages[0] if languages else "")
 
+    def create_hotwords_settings(self, parent):
+        """Create the hotwords settings interface"""
+        # Add a hint label
+        ttk.Label(parent,
+                  text="The hotwords list allows you to improve the recognition accuracy of specific words during speech recognition.").grid(
+            row=0, column=0,
+            columnspan=2,
+            sticky=tk.W, pady=2)
+
+        # Hotwords input area
+        ttk.Label(parent, text="Enter hotwords (one per line, Use lowercase letters):").grid(row=1, column=0, sticky=tk.W)
+        self.hotwords_text = scrolledtext.ScrolledText(parent, wrap=tk.WORD, width=40, height=10)
+        self.hotwords_text.grid(row=2, column=0, columnspan=2, sticky=tk.NSEW, pady=5)
+        self.hotwords_text.insert("end", "\n".join(self.hotwords))  # Display existing hotwords
+
+        # Make the input box resize with the window
+        parent.columnconfigure(1, weight=1)
+        parent.rowconfigure(2, weight=1)
+
+
     def on_exit(self):
-        """Handle window close and save configuration."""
+        """Handle window close"""
         while self.is_transcribing:
             self.stop_transcription()
             time.sleep(0.1)
+
+        self.save_all_config(False)
+        self.root.destroy()
+
+    def save_all_config(self, box=True):
+        """Save the current configuration."""
         current_settings = {
             "user_settings": {
                 "engine": self.current_engine_var.get(),
@@ -741,14 +830,20 @@ class Mainloop:
                     self.monitor_window.winfo_y()
                 ],
                 "deepl_key": self.deepl_key_var.get(),
+                "deepseek_key": self.deepseek_key_var.get(),
                 "ollama_url": self.ollama_url_var.get(),
                 "ollama_model": self.ollama_model_var.get(),
-                "hotwords": self.hotwords
+                "openai_model": "",
+                "openai_url": "",
+                "openai_key": "",
+                "hotwords": self.hotwords,
+                "translate_when_sentence_finishes": self.translate_when_sentence_finishes,
             }
         }
 
         self.config_handler.save_config(current_settings)
-        self.root.destroy()
+        if box:
+            messagebox.showinfo("Success", "All settings saved successfully!")
 
 def main():
     root = tk.Tk()

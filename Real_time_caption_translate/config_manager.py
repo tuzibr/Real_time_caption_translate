@@ -32,9 +32,14 @@ class ConfigHandler:
             "transcribe_device_index": 0,
             "monitor_position": [0, 0],
             "deepl_key": "",
+            "deepseek_key": "",
             "ollama_url": "localhost:11434",
             "ollama_model": "",
-            "hotwords": ["hello", "world"]
+            "openai_model": "",
+            "openai_url": "",
+            "openai_key": "",
+            "hotwords": ["hello", "world"],
+            "translate_when_sentence_finishes": False,
         }
     }
 

@@ -3,3 +3,4 @@ numpy
 ollama
 vosk
 pyaudiowpatch
+openai

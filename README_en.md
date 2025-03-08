@@ -29,11 +29,14 @@ A real-time caption translation tool based on VOSK speech recognition and machin
 <img src="./images/VOSK_model.png"> 
 </div> 
 
+- ⚙️ Can be configured in the settings to translate only when the text ends, reducing resource usage and achieving more accurate results.
+
+
 ## 📥 Installation Methods 
 
 ### Method 1: Use the Release Version Directly
 
-1. Go to the [Releases page](https://github.com/tuzibr/Real_time_caption_translate/releases/tag/v1.0.0) and download the latest version of the compressed package (88MB). 
+1. Go to the [Releases page](https://github.com/tuzibr/Real_time_caption_translate/releases/tag/v1.0.0) and download the latest version of the compressed package. 
 2. Extract it to any directory. 
 3. Double-click to run `Realtimecaptiontranslate.exe`. 
 4. The release version includes a small English recognition model that can directly recognize and translate English. To recognize other languages, download the corresponding model from the [VOSK official website](https://alphacephei.com/vosk/models), place it in any folder, and set the model path in the settings. 
@@ -59,4 +62,7 @@ python Run.py
 |----------|---------------------|------------------------------------| 
 | Google | None | Supports 100+ languages, free to use | 
 | DeepL | API Key | Requires registration to obtain a [DeepL key](https://www.deepl.com) | 
-| Ollama | Local service address | Requires installing and starting the Ollama service |"
+| Ollama | Local service address | Requires installing and starting the Ollama service |
+| DeepSeek | API Key            | Requires a DeepSeek API key [DeepSeek API Key](https://platform.deepseek.com) |
+| OpenAI   | Platform URL, Model Name, API Key | Supports model platforms compatible with the OpenAI SDK. Refer to the platform's documentation to obtain the corresponding platform URL, model name, and API key. |
+

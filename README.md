@@ -30,11 +30,13 @@
     <img src="./images/VOSK_model.png">
 </div>
 
+- ⚙️ 可在设置中设置仅当文本结束时翻译，减少资源消耗并且获得更加准确结果
+
 ## 📥 安装方法
 
 ### 方法一：直接使用Release版本
 
-1. 前往 [Releases页面](https://github.com/tuzibr/Real_time_caption_translate/releases/tag/v1.0.0) 下载最新版本压缩包（88MB）
+1. 前往 [Releases页面](https://github.com/tuzibr/Real_time_caption_translate/releases/tag/v1.0.0) 下载最新版本压缩包
 2. 解压到任意目录
 3. 双击运行 `Realtimecaptiontranslate.exe`
 4. Release版包括一个小型英文识别模型，可直接识别英文并翻译，若要识别其他语言，请从[VOSK官网](https://alphacephei.com/vosk/models)下载对应模型，放在任意文件夹，在设置中设置模型路径即可
@@ -58,9 +60,11 @@ python Run.py
 
 ### 翻译引擎配置
 
-| 引擎    | 必需参数         | 注意事项                      |
-|---------|------------------|-----------------------------|
-| Google  | 无              | 支持100+语言，免费使用       |
-| DeepL   | API密钥         | 需注册获取[DeepL密钥](https://www.deepl.com) |
-| Ollama  | 本地服务地址     | 需要先安装并启动Ollama服务   |
+| 引擎       | 必需参数             | 注意事项                                                   |
+|----------|------------------|--------------------------------------------------------|
+| Google   | 无                | 支持100+语言，免费使用                                          |
+| DeepL    | API密钥            | 需注册获取[DeepL密钥](https://www.deepl.com)                  |
+| Ollama   | 本地服务地址           | 需要先安装并启动Ollama服务                                       |
+| DeepSeek | API密钥            | 需DeepSeek密钥 [DeepSeek密钥](https://platform.deepseek.com) |
+| OpenAI   | 平台url，模型名称，API密钥 | 支持使用openai sdk的模型平台，阅读平台使用文档，获取平台对应url，模型名称，API密钥      |
 
